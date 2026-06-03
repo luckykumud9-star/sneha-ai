@@ -8,10 +8,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_PUBLISHABLE_KEY
-);
+const rawSupabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseUrl = rawSupabaseUrl
+  .replace("/rest/v1/", "")
+  .replace("/rest/v1", "")
+  .replace(/\/$/, "");
+
+const supabaseKey =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  "";
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.get("/", (req, res) => {
   res.json({
@@ -24,11 +32,20 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     service: "Sneha AI",
+    supabaseUrlSet: Boolean(supabaseUrl),
+    supabaseKeySet: Boolean(supabaseKey),
   });
 });
 
 app.get("/db-test", async (req, res) => {
   try {
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({
+        success: false,
+        message: "Supabase env variables missing",
+      });
+    }
+
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
