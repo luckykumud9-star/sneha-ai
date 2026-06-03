@@ -1,11 +1,13 @@
+import "./globals.css";
+
 export const metadata = {
   title: "Sneha AI",
-  description: "Your AI Mentor",
+  description: "Personal AI Mentor for Yash",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="hi">
       <body>{children}</body>
     </html>
   );
