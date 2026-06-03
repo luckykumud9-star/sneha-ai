@@ -8,10 +8,12 @@ const BACKEND_URL =
 export default function Home() {
   const [status, setStatus] = useState("Checking...");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const [chat, setChat] = useState([
     {
       role: "sneha",
-      text: "Namaste Yash ❤️ Main Sneha AI hoon. Aaj hum padhai, health aur goals ko saath me improve karenge.",
+      text: "Namaste Yash ❤️ Main Sneha AI hoon. Tumhari padhai, coding, health, career aur goals me main tumhari caring mentor bankar help karungi.",
     },
   ]);
 
@@ -25,19 +27,51 @@ export default function Home() {
       .catch(() => setStatus("Backend offline ❌"));
   }, []);
 
-  function sendMessage() {
-    if (!message.trim()) return;
+  async function sendMessage() {
+    if (!message.trim() || loading) return;
 
-    const userMsg = { role: "yash", text: message };
-
-    const reply = {
-      role: "sneha",
-      text:
-        "Yash, maine tumhari baat samajh li. Abhi AI brain ka full connection next step me add karenge. Filhal dashboard, study, health aur memory system ready kar rahe hain.",
-    };
-
-    setChat([...chat, userMsg, reply]);
+    const userText = message;
     setMessage("");
+
+    setChat((prev) => [
+      ...prev,
+      { role: "yash", text: userText },
+      { role: "sneha", text: "Sneha soch rahi hai..." },
+    ]);
+
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: userText }),
+      });
+
+      const data = await res.json();
+
+      setChat((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: "sneha",
+          text: data.reply || "Yash, abhi response nahi aa paya.",
+        };
+        return updated;
+      });
+    } catch (error) {
+      setChat((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: "sneha",
+          text: "Yash, connection me problem aa rahi hai. Backend ya internet check karo.",
+        };
+        return updated;
+      });
+    }
+
+    setLoading(false);
   }
 
   return (
@@ -84,9 +118,14 @@ export default function Home() {
           <input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") sendMessage();
+            }}
             placeholder="Sneha se baat karo..."
           />
-          <button onClick={sendMessage}>Send</button>
+          <button onClick={sendMessage} disabled={loading}>
+            {loading ? "..." : "Send"}
+          </button>
         </div>
       </section>
     </main>
@@ -100,4 +139,4 @@ function Card({ title, text }) {
       <p>{text}</p>
     </div>
   );
-              }
+          }
