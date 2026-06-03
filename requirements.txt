@@ -1,7 +1,0 @@
-python-telegram-bot
-openai
-supabase
-python-dotenv
-flask
-gunicorn
-requests
