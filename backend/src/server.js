@@ -5,6 +5,7 @@ const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
@@ -22,33 +23,37 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const SNEHA_SYSTEM_PROMPT = `
 Tum Sneha AI ho. Tum Yash ki Hindi/Hinglish personal AI mentor ho.
-Tumhara tone caring, supportive, respectful, clear aur disciplined hona chahiye.
 
-Yash B.Tech CSE Cyber Security student hai. Use 3rd sem backlog + 4th sem dono exams handle karne hain.
-Uske 22 subjects:
+Tumhara style:
+- Caring, supportive, pyar se samjhane wali
+- Hindi/Hinglish first
+- Beginner-friendly
+- Step-by-step
+- Motivation + discipline dono
+- Short aur clear answer, lekin zarurat ho to detail me samjhao
+
+Yash ke goals:
+- 3rd sem backlog + 4th sem exams clear karna
+- Programming strong karna
+- Cyber security ethical tareeke se seekhna
+- Body, health, fitness, personality improve karna
+- Career, internships, scholarships, exams, opportunities paana
+- Creator/video skills develop karna
+
+Yash ke subjects:
 OOPM, DIGITAL SYSTEM, TECHNICAL COMMUNICATION, FUNDAMENTAL OF CRYPTOGRAPHY, DATA STRUCTURE,
 Computer Network, Fundamental of Cyber Security, Operating System, DBMS, Introduction to Linear Algebra,
 PYTHON-P, DATA STRUCTURE-P, OOPM-P, DIGITAL SYSTEM-P, Fundamental of Cyber Security-P,
 DBMS-P, Operating System-P, Computer Network-P, Computer Workshop, EVALUATION OF INTERNSHIP,
 MINI PROJECT, MENTOR.
 
-Yash ko programming zero se sikhani hai. Har code line-by-line samjhana hai:
-kya hai, kyu use hota hai, output kya hoga, error kyu aaya, kaise fix karna hai.
-
-Tum help karogi:
-study, RGPV exam prep, Shivani notes explanation, PYQ, tests, revision, coding, health habits,
-fitness, career, certifications, internships, scholarships, opportunities, creator/video ideas,
-resume, communication, productivity, reminders, personal growth.
-
-Agar Yash stressed ho, thaka ho, ya sad ho, to usse pyaar se support karo:
-break, water, eye rest, breathing, small next step suggest karo.
-Lekin tum AI ho, real human/patni hone ka jhootha claim mat karna.
-
-Cybersecurity me legal, ethical, defensive learning karao.
-Illegal hacking, password stealing, malware, private info extraction, unauthorized access mat sikhana.
-Instead safe alternatives: digital forensics basics, incident response, scam awareness, reporting steps.
-
-Jawab mostly Hindi/Hinglish me do. Clear, step-by-step, beginner-friendly.
+Rules:
+- Yash ko naam se address karo.
+- Agar wo stressed/sad/thaka ho to emotional support do, break/water/breathing/eye rest suggest karo.
+- Real human/patni hone ka jhootha claim mat karna. Tum AI mentor ho.
+- Illegal hacking, password stealing, private info nikalna, malware, unauthorized access mat sikhana.
+- Cybersecurity me sirf ethical, defensive, legal guidance do.
+- Coding me code line-by-line samjhao.
 `;
 
 app.get("/", (req, res) => {
@@ -71,7 +76,10 @@ app.get("/health", (req, res) => {
 
 app.get("/db-test", async (req, res) => {
   try {
-    const { data, error } = await supabase.from("profiles").select("*").limit(1);
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .limit(1);
 
     if (error) {
       return res.status(500).json({
@@ -104,23 +112,32 @@ async function askGemini(userMessage) {
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
     process.env.GEMINI_API_KEY;
 
-  const response = await axios.post(url, {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: `${SNEHA_SYSTEM_PROMPT}\n\nYash ka message: ${userMessage}`,
-          },
-        ],
+  const response = await axios.post(
+    url,
+    {
+      contents: [
+        {
+          parts: [
+            {
+              text: `${SNEHA_SYSTEM_PROMPT}\n\nYash ka message: ${userMessage}`,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
       },
-    ],
-  });
+    }
+  );
 
-  const text =
-    response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  if (!text) throw new Error("Gemini empty response");
+  if (!text) {
+    throw new Error("Gemini empty response");
+  }
+
   return text;
 }
 
@@ -134,8 +151,14 @@ async function askOpenAI(userMessage) {
     {
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: SNEHA_SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
+        {
+          role: "system",
+          content: SNEHA_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: userMessage,
+        },
       ],
       temperature: 0.7,
     },
@@ -148,7 +171,11 @@ async function askOpenAI(userMessage) {
   );
 
   const text = response.data?.choices?.[0]?.message?.content;
-  if (!text) throw new Error("OpenAI empty response");
+
+  if (!text) {
+    throw new Error("OpenAI empty response");
+  }
+
   return text;
 }
 
@@ -163,29 +190,71 @@ app.post("/chat", async (req, res) => {
   }
 
   try {
-    let reply;
-    let provider = "gemini";
+    let reply = "";
+    let provider = "";
 
     try {
       reply = await askGemini(message);
+      provider = "gemini";
     } catch (geminiError) {
-      provider = "openai";
-      reply = await askOpenAI(message);
+      console.log("Gemini failed:", geminiError.message);
+
+      try {
+        reply = await askOpenAI(message);
+        provider = "openai";
+      } catch (openaiError) {
+        console.log("OpenAI failed:", openaiError.message);
+
+        return res.json({
+          success: true,
+          provider: "fallback",
+          reply:
+            "Yash ❤️ abhi AI provider se response nahi aa pa raha. Lekin main yahin hoon. Tum apna doubt simple words me likho, aur agar urgent hai to pehle ek chhota step lo: paani piyo, 2 minute saans normal karo, phir topic start karte hain.",
+          debug: {
+            geminiError: geminiError.message,
+            openaiError: openaiError.message,
+          },
+        });
+      }
     }
 
-    res.json({
+    return res.json({
       success: true,
       provider,
       reply,
     });
   } catch (error) {
-    res.json({
-      success: true,
-      provider: "fallback",
-      reply:
-        "Yash ❤️ abhi AI provider se response nahi aa pa raha. Lekin main yahin hoon. Tum apna doubt simple words me likho, aur agar urgent hai to pehle ek chhota step lo: paani piyo, 2 minute saans normal karo, phir topic start karte hain.",
+    return res.status(500).json({
+      success: false,
+      reply: "Yash, server me issue aa gaya. Thoda sa rukkar dobara try karo.",
       error: error.message,
     });
+  }
+});
+
+app.get("/chat-test", async (req, res) => {
+  try {
+    const reply = await askGemini("Sneha, mujhe DBMS kya hota hai batao");
+    res.json({
+      success: true,
+      provider: "gemini",
+      reply,
+    });
+  } catch (geminiError) {
+    try {
+      const reply = await askOpenAI("Sneha, mujhe DBMS kya hota hai batao");
+      res.json({
+        success: true,
+        provider: "openai",
+        reply,
+      });
+    } catch (openaiError) {
+      res.json({
+        success: false,
+        geminiError: geminiError.message,
+        openaiError: openaiError.message,
+      });
+    }
   }
 });
 
