@@ -53,8 +53,87 @@ Illegal hacking, password stealing, private info extraction, malware, unauthoriz
 Cybersecurity me sirf ethical, defensive aur legal help do.
 `;
 
-function buildPrompt(message) {
-  return `${SNEHA_PROMPT}\n\nYash ka message:\n${message}`;
+async function getMemoryText() {
+  const { data } = await supabase
+    .from("memories")
+    .select("memory_text")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (!data || data.length === 0) return "";
+
+  return data.map((m, i) => `${i + 1}. ${m.memory_text}`).join("\n");
+}
+
+async function getRecentHistoryText() {
+  const { data } = await supabase
+    .from("messages")
+    .select("role, content")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (!data || data.length === 0) return "";
+
+  return data
+    .reverse()
+    .map((m) => `${m.role}: ${m.content}`)
+    .join("\n");
+}
+
+async function buildPrompt(message) {
+  const memories = await getMemoryText();
+  const history = await getRecentHistoryText();
+
+  return `
+${SNEHA_PROMPT}
+
+Yash ke saved memories:
+${memories || "Abhi koi saved memory nahi."}
+
+Recent chat history:
+${history || "Abhi koi recent history nahi."}
+
+Yash ka current message:
+${message}
+`;
+}
+
+async function saveMessage(role, content, provider = null) {
+  try {
+    await supabase.from("messages").insert({
+      role,
+      content,
+      provider,
+    });
+  } catch (err) {
+    console.log("Message save failed:", err.message);
+  }
+}
+
+async function saveImportantMemory(message) {
+  const lower = message.toLowerCase();
+
+  const shouldSave =
+    lower.includes("remember") ||
+    lower.includes("yaad rakh") ||
+    lower.includes("mera goal") ||
+    lower.includes("main chahta") ||
+    lower.includes("mujhe") ||
+    lower.includes("semester") ||
+    lower.includes("subject") ||
+    lower.includes("health") ||
+    lower.includes("stress") ||
+    lower.includes("padhai");
+
+  if (!shouldSave) return;
+
+  try {
+    await supabase.from("memories").insert({
+      memory_text: message.slice(0, 500),
+    });
+  } catch (err) {
+    console.log("Memory save failed:", err.message);
+  }
 }
 
 app.get("/", (req, res) => {
@@ -67,19 +146,16 @@ app.get("/health", (req, res) => {
     service: "Sneha AI",
     supabaseUrlSet: Boolean(supabaseUrl),
     supabaseKeySet: Boolean(supabaseKey),
-
     geminiSet: Boolean(process.env.GEMINI_API_KEY),
     groqSet: Boolean(process.env.GROQ_API_KEY),
     openrouterSet: Boolean(process.env.OPENROUTER_API_KEY),
     openaiSet: Boolean(process.env.OPENAI_API_KEY),
     huggingfaceSet: Boolean(process.env.HUGGINGFACE_API_KEY),
-
     elevenlabsSet: Boolean(process.env.ELEVENLABS_API_KEY),
     replicateSet: Boolean(process.env.REPLICATE_API_TOKEN),
     falSet: Boolean(process.env.FAL_KEY),
     runwaySet: Boolean(process.env.RUNWAY_API_KEY),
     stabilitySet: Boolean(process.env.STABILITY_API_KEY),
-
     serpapiSet: Boolean(process.env.SERPAPI_API_KEY),
     resendSet: Boolean(process.env.RESEND_API_KEY),
     openweatherSet: Boolean(process.env.OPENWEATHER_API_KEY),
@@ -88,40 +164,34 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/db-test", async (req, res) => {
-  try {
-    const { data, error } = await supabase.from("profiles").select("*").limit(1);
+  const { data, error } = await supabase.from("profiles").select("*").limit(1);
 
-    if (error) {
-      return res.json({
-        success: false,
-        message: "Supabase connection failed",
-        error: error.message,
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Supabase connected successfully",
-      data,
+  if (error) {
+    return res.json({
+      success: false,
+      message: "Supabase connection failed",
+      error: error.message,
     });
-  } catch (err) {
-    res.json({ success: false, message: "Server error", error: err.message });
   }
+
+  res.json({
+    success: true,
+    message: "Supabase connected successfully",
+    data,
+  });
 });
 
 async function askGemini(message) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Gemini API key missing");
+
+  const prompt = await buildPrompt(message);
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const response = await axios.post(
     url,
     {
-      contents: [
-        {
-          parts: [{ text: buildPrompt(message) }],
-        },
-      ],
+      contents: [{ parts: [{ text: prompt }] }],
     },
     { timeout: 30000 }
   );
@@ -134,13 +204,15 @@ async function askGemini(message) {
 async function askGroq(message) {
   if (!process.env.GROQ_API_KEY) throw new Error("Groq API key missing");
 
+  const prompt = await buildPrompt(message);
+
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       model: "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: message },
+        { role: "user", content: prompt },
       ],
       temperature: 0.7,
     },
@@ -163,13 +235,15 @@ async function askOpenRouter(message) {
     throw new Error("OpenRouter API key missing");
   }
 
+  const prompt = await buildPrompt(message);
+
   const response = await axios.post(
     "https://openrouter.ai/api/v1/chat/completions",
     {
       model: "meta-llama/llama-3.1-8b-instruct:free",
       messages: [
         { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: message },
+        { role: "user", content: prompt },
       ],
       temperature: 0.7,
     },
@@ -192,13 +266,15 @@ async function askOpenRouter(message) {
 async function askOpenAI(message) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI API key missing");
 
+  const prompt = await buildPrompt(message);
+
   const response = await axios.post(
     "https://api.openai.com/v1/chat/completions",
     {
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: message },
+        { role: "user", content: prompt },
       ],
       temperature: 0.7,
     },
@@ -220,18 +296,18 @@ function localSnehaFallback(message) {
   const text = message.toLowerCase();
 
   if (text.includes("dbms")) {
-    return "Yash, DBMS ka matlab Database Management System hota hai. Ye data ko store, manage aur retrieve karne ka system hai. Example: students table me name, roll number, marks store hote hain. Pehle basics padho: database, table, row, column, primary key, foreign key.";
+    return "Yash, DBMS ka matlab Database Management System hota hai. Ye data ko store, manage aur retrieve karne ka system hai. Example: students table me name, roll number, marks store hote hain.";
   }
 
   if (text.includes("python")) {
-    return "Yash, Python ek beginner-friendly programming language hai. Example: print('Hello') screen par Hello dikhata hai. print ek function hai. Hum zero se start karenge: variables, input, if-else, loops, functions.";
+    return "Yash, Python ek beginner-friendly programming language hai. Example: print('Hello') screen par Hello dikhata hai.";
   }
 
   if (text.includes("stress") || text.includes("sad") || text.includes("thak")) {
-    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo, aankhon ko rest do. Tum loser nahi ho. Tum bas pressure me ho. Abhi sirf 15 minute ka ek chhota target lete hain, phir main tumhe step-by-step guide karungi.";
+    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo, aankhon ko rest do. Tum loser nahi ho. Abhi sirf 15 minute ka chhota target lete hain.";
   }
 
-  return "Yash ❤️ online AI providers busy/quota issue me ho sakte hain, lekin main basic help kar sakti hoon. Tum topic simple words me likho, main step-by-step samjhaungi.";
+  return "Yash ❤️ online AI providers busy/quota issue me ho sakte hain, lekin main basic help kar sakti hoon. Tum topic simple words me likho.";
 }
 
 async function askSneha(message) {
@@ -278,7 +354,12 @@ app.post("/chat", async (req, res) => {
     });
   }
 
+  await saveMessage("yash", message);
+  await saveImportantMemory(message);
+
   const result = await askSneha(message);
+
+  await saveMessage("sneha", result.reply, result.provider);
 
   res.json({
     success: true,
@@ -296,6 +377,56 @@ app.get("/chat-test", async (req, res) => {
     provider: result.provider,
     reply: result.reply,
     debug: result.debug || null,
+  });
+});
+
+app.get("/history", async (req, res) => {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null,
+  });
+});
+
+app.get("/memories", async (req, res) => {
+  const { data, error } = await supabase
+    .from("memories")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null,
+  });
+});
+
+app.post("/memory", async (req, res) => {
+  const { memory } = req.body;
+
+  if (!memory || !memory.trim()) {
+    return res.json({
+      success: false,
+      message: "Memory empty hai.",
+    });
+  }
+
+  const { data, error } = await supabase
+    .from("memories")
+    .insert({ memory_text: memory })
+    .select();
+
+  res.json({
+    success: !error,
+    data,
+    error: error?.message || null,
   });
 });
 
