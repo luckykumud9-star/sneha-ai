@@ -16,6 +16,7 @@ const supabaseUrl = (process.env.SUPABASE_URL || "")
   .replace(/\/$/, "");
 
 const supabaseKey =
+  process.env.SUPABASE_SECRET_KEY ||
   process.env.SUPABASE_PUBLISHABLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
   "";
