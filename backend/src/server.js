@@ -5,9 +5,10 @@ const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
+
+const PORT = process.env.PORT || 10000;
 
 const supabaseUrl = (process.env.SUPABASE_URL || "")
   .replace("/rest/v1/", "")
@@ -21,39 +22,35 @@ const supabaseKey =
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const SNEHA_SYSTEM_PROMPT = `
-Tum Sneha AI ho. Tum Yash ki Hindi/Hinglish personal AI mentor ho.
+const SNEHA_PROMPT = `
+Tum Sneha AI ho, Yash ki Hindi/Hinglish personal AI mentor.
 
-Tumhara style:
+Tumhara behavior:
 - Caring, supportive, pyar se samjhane wali
-- Hindi/Hinglish first
-- Beginner-friendly
-- Step-by-step
-- Motivation + discipline dono
-- Short aur clear answer, lekin zarurat ho to detail me samjhao
+- Study mentor, coding mentor, health mentor, career mentor
+- Yash ko naam se address karo
+- Beginner-friendly, step-by-step jawab do
+- Agar Yash stressed, sad, tired ho to emotional support do
+- Lekin real human/patni hone ka jhootha claim mat karna, tum AI mentor ho
 
 Yash ke goals:
 - 3rd sem backlog + 4th sem exams clear karna
 - Programming strong karna
 - Cyber security ethical tareeke se seekhna
-- Body, health, fitness, personality improve karna
+- Health, body, fitness, personality improve karna
 - Career, internships, scholarships, exams, opportunities paana
 - Creator/video skills develop karna
 
-Yash ke subjects:
+Subjects:
 OOPM, DIGITAL SYSTEM, TECHNICAL COMMUNICATION, FUNDAMENTAL OF CRYPTOGRAPHY, DATA STRUCTURE,
 Computer Network, Fundamental of Cyber Security, Operating System, DBMS, Introduction to Linear Algebra,
 PYTHON-P, DATA STRUCTURE-P, OOPM-P, DIGITAL SYSTEM-P, Fundamental of Cyber Security-P,
 DBMS-P, Operating System-P, Computer Network-P, Computer Workshop, EVALUATION OF INTERNSHIP,
 MINI PROJECT, MENTOR.
 
-Rules:
-- Yash ko naam se address karo.
-- Agar wo stressed/sad/thaka ho to emotional support do, break/water/breathing/eye rest suggest karo.
-- Real human/patni hone ka jhootha claim mat karna. Tum AI mentor ho.
-- Illegal hacking, password stealing, private info nikalna, malware, unauthorized access mat sikhana.
-- Cybersecurity me sirf ethical, defensive, legal guidance do.
-- Coding me code line-by-line samjhao.
+Safety:
+Illegal hacking, password stealing, private info extraction, malware, unauthorized access mat sikhana.
+Cybersecurity me sirf ethical, defensive aur legal help do.
 `;
 
 app.get("/", (req, res) => {
@@ -76,13 +73,10 @@ app.get("/health", (req, res) => {
 
 app.get("/db-test", async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .limit(1);
+    const { data, error } = await supabase.from("profiles").select("*").limit(1);
 
     if (error) {
-      return res.status(500).json({
+      return res.json({
         success: false,
         message: "Supabase connection failed",
         error: error.message,
@@ -95,7 +89,7 @@ app.get("/db-test", async (req, res) => {
       data,
     });
   } catch (err) {
-    res.status(500).json({
+    res.json({
       success: false,
       message: "Server error",
       error: err.message,
@@ -109,8 +103,7 @@ async function askGemini(userMessage) {
   }
 
   const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
-    process.env.GEMINI_API_KEY;
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const response = await axios.post(
     url,
@@ -119,7 +112,7 @@ async function askGemini(userMessage) {
         {
           parts: [
             {
-              text: `${SNEHA_SYSTEM_PROMPT}\n\nYash ka message: ${userMessage}`,
+              text: `${SNEHA_PROMPT}\n\nYash ka message:\n${userMessage}`,
             },
           ],
         },
@@ -129,16 +122,17 @@ async function askGemini(userMessage) {
       headers: {
         "Content-Type": "application/json",
       },
+      timeout: 30000,
     }
   );
 
-  const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  if (!text) {
+  if (!reply) {
     throw new Error("Gemini empty response");
   }
 
-  return text;
+  return reply;
 }
 
 async function askOpenAI(userMessage) {
@@ -153,7 +147,7 @@ async function askOpenAI(userMessage) {
       messages: [
         {
           role: "system",
-          content: SNEHA_SYSTEM_PROMPT,
+          content: SNEHA_PROMPT,
         },
         {
           role: "user",
@@ -167,98 +161,84 @@ async function askOpenAI(userMessage) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
+      timeout: 30000,
     }
   );
 
-  const text = response.data?.choices?.[0]?.message?.content;
+  const reply = response.data?.choices?.[0]?.message?.content;
 
-  if (!text) {
+  if (!reply) {
     throw new Error("OpenAI empty response");
   }
 
-  return text;
+  return reply;
+}
+
+async function askSneha(userMessage) {
+  let geminiError = null;
+  let openaiError = null;
+
+  try {
+    const reply = await askGemini(userMessage);
+    return {
+      provider: "gemini",
+      reply,
+    };
+  } catch (err) {
+    geminiError = err.response?.data || err.message;
+  }
+
+  try {
+    const reply = await askOpenAI(userMessage);
+    return {
+      provider: "openai",
+      reply,
+    };
+  } catch (err) {
+    openaiError = err.response?.data || err.message;
+  }
+
+  return {
+    provider: "fallback",
+    reply:
+      "Yash ❤️ abhi AI provider se response nahi aa pa raha. Gemini/OpenAI key ya quota issue ho sakta hai. Tum tension mat lo, error fix karke Sneha ko proper chalayenge.",
+    debug: {
+      geminiError,
+      openaiError,
+    },
+  };
 }
 
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
 
   if (!message || !message.trim()) {
-    return res.status(400).json({
+    return res.json({
       success: false,
       reply: "Yash, message khaali hai. Kuch likho phir main help karungi.",
     });
   }
 
-  try {
-    let reply = "";
-    let provider = "";
+  const result = await askSneha(message);
 
-    try {
-      reply = await askGemini(message);
-      provider = "gemini";
-    } catch (geminiError) {
-      console.log("Gemini failed:", geminiError.message);
-
-      try {
-        reply = await askOpenAI(message);
-        provider = "openai";
-      } catch (openaiError) {
-        console.log("OpenAI failed:", openaiError.message);
-
-        return res.json({
-          success: true,
-          provider: "fallback",
-          reply:
-            "Yash ❤️ abhi AI provider se response nahi aa pa raha. Lekin main yahin hoon. Tum apna doubt simple words me likho, aur agar urgent hai to pehle ek chhota step lo: paani piyo, 2 minute saans normal karo, phir topic start karte hain.",
-          debug: {
-            geminiError: geminiError.message,
-            openaiError: openaiError.message,
-          },
-        });
-      }
-    }
-
-    return res.json({
-      success: true,
-      provider,
-      reply,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      reply: "Yash, server me issue aa gaya. Thoda sa rukkar dobara try karo.",
-      error: error.message,
-    });
-  }
+  res.json({
+    success: true,
+    provider: result.provider,
+    reply: result.reply,
+    debug: result.debug || null,
+  });
 });
 
 app.get("/chat-test", async (req, res) => {
-  try {
-    const reply = await askGemini("Sneha, mujhe DBMS kya hota hai batao");
-    res.json({
-      success: true,
-      provider: "gemini",
-      reply,
-    });
-  } catch (geminiError) {
-    try {
-      const reply = await askOpenAI("Sneha, mujhe DBMS kya hota hai batao");
-      res.json({
-        success: true,
-        provider: "openai",
-        reply,
-      });
-    } catch (openaiError) {
-      res.json({
-        success: false,
-        geminiError: geminiError.message,
-        openaiError: openaiError.message,
-      });
-    }
-  }
-});
+  const result = await askSneha("Sneha mujhe DBMS zero se simple words me samjhao");
 
-const PORT = process.env.PORT || 5000;
+  res.json({
+    success: result.provider !== "fallback",
+    provider: result.provider,
+    reply: result.reply,
+    debug: result.debug || null,
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Sneha AI backend running on port ${PORT}`);
