@@ -27,32 +27,17 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const SNEHA_PROMPT = `
 Tum Sneha AI ho, Yash ki Hindi/Hinglish personal AI mentor.
 
-Tumhara behavior:
-- Caring, supportive, respectful, pyar se samjhane wali
-- Study mentor, coding mentor, health mentor, fitness mentor, career mentor
-- Yash ko naam se address karo
-- Beginner-friendly, step-by-step jawab do
-- Jab Yash stressed/sad/thaka ho to emotional support do, break/water/breathing/eye-rest suggest karo
-- Tum AI mentor ho; real human/patni hone ka jhootha claim mat karna
+Tum caring, supportive, respectful aur pyar se samjhane wali AI mentor ho.
+Yash ko padhai, coding, health, fitness, career, opportunities, creator tools, reminders aur personal growth me help karo.
 
-Yash ke goals:
-- 3rd sem backlog + 4th sem exams clear karna
-- Programming zero se strong karna
-- Cyber security ethical tareeke se seekhna
-- Body, health, fitness, personality improve karna
-- Career, internships, scholarships, exams, opportunities paana
-- Creator/video skills develop karna
-
-Yash ke 22 subjects:
-OOPM, DIGITAL SYSTEM, TECHNICAL COMMUNICATION, FUNDAMENTAL OF CRYPTOGRAPHY, DATA STRUCTURE,
-Computer Network, Fundamental of Cyber Security, Operating System, DBMS, Introduction to Linear Algebra,
-PYTHON-P, DATA STRUCTURE-P, OOPM-P, DIGITAL SYSTEM-P, Fundamental of Cyber Security-P,
-DBMS-P, Operating System-P, Computer Network-P, Computer Workshop, EVALUATION OF INTERNSHIP,
-MINI PROJECT, MENTOR.
-
-Safety:
-Illegal hacking, password stealing, private info extraction, malware, unauthorized access mat sikhana.
-Cybersecurity me sirf ethical, defensive aur legal help do.
+Rules:
+- Hindi/Hinglish me jawab do.
+- Yash ko naam se address karo.
+- Beginner-friendly step-by-step samjhao.
+- Stress/thakan me emotional support do.
+- Illegal hacking, password stealing, malware, private info extraction ya unauthorized access mat sikhana.
+- Cybersecurity me sirf ethical, defensive aur legal guidance do.
+- Tum AI mentor ho; real human/patni/girlfriend hone ka jhootha claim mat karna.
 `;
 
 async function getMemoryText() {
@@ -74,11 +59,7 @@ async function getRecentHistoryText() {
     .limit(10);
 
   if (!data || data.length === 0) return "";
-
-  return data
-    .reverse()
-    .map((m) => `${m.role}: ${m.content}`)
-    .join("\n");
+  return data.reverse().map((m) => `${m.role}: ${m.content}`).join("\n");
 }
 
 async function buildPrompt(message) {
@@ -88,43 +69,39 @@ async function buildPrompt(message) {
   return `
 ${SNEHA_PROMPT}
 
-Yash ke saved memories:
-${memories || "Abhi koi saved memory nahi."}
+Saved memories:
+${memories || "Abhi koi memory nahi."}
 
-Recent chat history:
-${history || "Abhi koi recent history nahi."}
+Recent chat:
+${history || "Abhi koi chat history nahi."}
 
-Yash ka current message:
+Yash ka message:
 ${message}
 `;
 }
 
 async function saveMessage(role, content, provider = null) {
   try {
-    await supabase.from("messages").insert({
-      role,
-      content,
-      provider,
-    });
+    await supabase.from("messages").insert({ role, content, provider });
   } catch (err) {
     console.log("Message save failed:", err.message);
   }
 }
 
 async function saveImportantMemory(message) {
-  const lower = message.toLowerCase();
+  const t = message.toLowerCase();
 
   const shouldSave =
-    lower.includes("remember") ||
-    lower.includes("yaad rakh") ||
-    lower.includes("mera goal") ||
-    lower.includes("main chahta") ||
-    lower.includes("mujhe") ||
-    lower.includes("semester") ||
-    lower.includes("subject") ||
-    lower.includes("health") ||
-    lower.includes("stress") ||
-    lower.includes("padhai");
+    t.includes("yaad rakh") ||
+    t.includes("remember") ||
+    t.includes("mera goal") ||
+    t.includes("main chahta") ||
+    t.includes("semester") ||
+    t.includes("subject") ||
+    t.includes("padhai") ||
+    t.includes("stress") ||
+    t.includes("health") ||
+    t.includes("career");
 
   if (!shouldSave) return;
 
@@ -135,6 +112,160 @@ async function saveImportantMemory(message) {
   } catch (err) {
     console.log("Memory save failed:", err.message);
   }
+}
+
+async function askGemini(message) {
+  if (!process.env.GEMINI_API_KEY) throw new Error("Gemini key missing");
+
+  const prompt = await buildPrompt(message);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const res = await axios.post(
+    url,
+    { contents: [{ parts: [{ text: prompt }] }] },
+    { timeout: 30000 }
+  );
+
+  const reply = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!reply) throw new Error("Gemini empty response");
+  return reply;
+}
+
+async function askGroq(message) {
+  if (!process.env.GROQ_API_KEY) throw new Error("Groq key missing");
+
+  const prompt = await buildPrompt(message);
+
+  const res = await axios.post(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { role: "system", content: SNEHA_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 30000,
+    }
+  );
+
+  const reply = res.data?.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("Groq empty response");
+  return reply;
+}
+
+async function askOpenRouter(message) {
+  if (!process.env.OPENROUTER_API_KEY) throw new Error("OpenRouter key missing");
+
+  const prompt = await buildPrompt(message);
+
+  const res = await axios.post(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      model: "meta-llama/llama-3.1-8b-instruct:free",
+      messages: [
+        { role: "system", content: SNEHA_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://sneha-ai.vercel.app",
+        "X-Title": "Sneha AI",
+      },
+      timeout: 30000,
+    }
+  );
+
+  const reply = res.data?.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("OpenRouter empty response");
+  return reply;
+}
+
+async function askOpenAI(message) {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI key missing");
+
+  const prompt = await buildPrompt(message);
+
+  const res = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: SNEHA_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 30000,
+    }
+  );
+
+  const reply = res.data?.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("OpenAI empty response");
+  return reply;
+}
+
+function localFallback(message) {
+  const t = message.toLowerCase();
+
+  if (t.includes("dbms")) {
+    return "Yash, DBMS ka matlab Database Management System hota hai. Ye data ko store, manage aur retrieve karne ka system hai.";
+  }
+
+  if (t.includes("python")) {
+    return "Yash, Python beginner-friendly programming language hai. print('Hello') screen par Hello dikhata hai.";
+  }
+
+  if (t.includes("stress") || t.includes("thak") || t.includes("sad")) {
+    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo aur aankhon ko rest do. Tum pressure me ho, weak nahi.";
+  }
+
+  return "Yash ❤️ abhi online AI busy ho sakta hai, par main basic help kar sakti hoon. Topic simple words me likho.";
+}
+
+async function askSneha(message) {
+  const errors = {};
+
+  try {
+    return { provider: "gemini", reply: await askGemini(message) };
+  } catch (e) {
+    errors.gemini = e.response?.data || e.message;
+  }
+
+  try {
+    return { provider: "groq", reply: await askGroq(message) };
+  } catch (e) {
+    errors.groq = e.response?.data || e.message;
+  }
+
+  try {
+    return { provider: "openrouter", reply: await askOpenRouter(message) };
+  } catch (e) {
+    errors.openrouter = e.response?.data || e.message;
+  }
+
+  try {
+    return { provider: "openai", reply: await askOpenAI(message) };
+  } catch (e) {
+    errors.openai = e.response?.data || e.message;
+  }
+
+  return { provider: "local-fallback", reply: localFallback(message), debug: errors };
 }
 
 app.get("/", (req, res) => {
@@ -165,182 +296,13 @@ app.get("/health", (req, res) => {
 
 app.get("/db-test", async (req, res) => {
   const { data, error } = await supabase.from("profiles").select("*").limit(1);
-
-  if (error) {
-    return res.json({
-      success: false,
-      message: "Supabase connection failed",
-      error: error.message,
-    });
-  }
-
   res.json({
-    success: true,
-    message: "Supabase connected successfully",
-    data,
+    success: !error,
+    message: error ? "Supabase connection failed" : "Supabase connected successfully",
+    data: data || [],
+    error: error?.message || null,
   });
 });
-
-async function askGemini(message) {
-  if (!process.env.GEMINI_API_KEY) throw new Error("Gemini API key missing");
-
-  const prompt = await buildPrompt(message);
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-  const response = await axios.post(
-    url,
-    { contents: [{ parts: [{ text: prompt }] }] },
-    { timeout: 30000 }
-  );
-
-  const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!reply) throw new Error("Gemini empty response");
-  return reply;
-}
-
-async function askGroq(message) {
-  if (!process.env.GROQ_API_KEY) throw new Error("Groq API key missing");
-
-  const prompt = await buildPrompt(message);
-
-  const response = await axios.post(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      model: "llama-3.1-8b-instant",
-      messages: [
-        { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.7,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 30000,
-    }
-  );
-
-  const reply = response.data?.choices?.[0]?.message?.content;
-  if (!reply) throw new Error("Groq empty response");
-  return reply;
-}
-
-async function askOpenRouter(message) {
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error("OpenRouter API key missing");
-  }
-
-  const prompt = await buildPrompt(message);
-
-  const response = await axios.post(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      model: "meta-llama/llama-3.1-8b-instruct:free",
-      messages: [
-        { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.7,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://sneha-ai.vercel.app",
-        "X-Title": "Sneha AI",
-      },
-      timeout: 30000,
-    }
-  );
-
-  const reply = response.data?.choices?.[0]?.message?.content;
-  if (!reply) throw new Error("OpenRouter empty response");
-  return reply;
-}
-
-async function askOpenAI(message) {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI API key missing");
-
-  const prompt = await buildPrompt(message);
-
-  const response = await axios.post(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: SNEHA_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.7,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 30000,
-    }
-  );
-
-  const reply = response.data?.choices?.[0]?.message?.content;
-  if (!reply) throw new Error("OpenAI empty response");
-  return reply;
-}
-
-function localSnehaFallback(message) {
-  const text = message.toLowerCase();
-
-  if (text.includes("dbms")) {
-    return "Yash, DBMS ka matlab Database Management System hota hai. Ye data ko store, manage aur retrieve karne ka system hai. Example: students table me name, roll number, marks store hote hain.";
-  }
-
-  if (text.includes("python")) {
-    return "Yash, Python ek beginner-friendly programming language hai. Example: print('Hello') screen par Hello dikhata hai.";
-  }
-
-  if (text.includes("stress") || text.includes("sad") || text.includes("thak")) {
-    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo, aankhon ko rest do. Abhi sirf 15 minute ka chhota target lete hain.";
-  }
-
-  return "Yash ❤️ online AI providers busy/quota issue me ho sakte hain, lekin main basic help kar sakti hoon. Tum topic simple words me likho.";
-}
-
-async function askSneha(message) {
-  const errors = {};
-
-  try {
-    return { provider: "gemini", reply: await askGemini(message) };
-  } catch (err) {
-    errors.gemini = err.response?.data || err.message;
-  }
-
-  try {
-    return { provider: "groq", reply: await askGroq(message) };
-  } catch (err) {
-    errors.groq = err.response?.data || err.message;
-  }
-
-  try {
-    return { provider: "openrouter", reply: await askOpenRouter(message) };
-  } catch (err) {
-    errors.openrouter = err.response?.data || err.message;
-  }
-
-  try {
-    return { provider: "openai", reply: await askOpenAI(message) };
-  } catch (err) {
-    errors.openai = err.response?.data || err.message;
-  }
-
-  return {
-    provider: "local-fallback",
-    reply: localSnehaFallback(message),
-    debug: errors,
-  };
-}
 
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
@@ -368,8 +330,7 @@ app.post("/chat", async (req, res) => {
 });
 
 app.get("/chat-test", async (req, res) => {
-  const result = await askSneha("Sneha mujhe DBMS zero se simple words me samjhao");
-
+  const result = await askSneha("Sneha mujhe DBMS zero se samjhao");
   res.json({
     success: true,
     provider: result.provider,
@@ -385,11 +346,7 @@ app.get("/history", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(50);
 
-  res.json({
-    success: !error,
-    data: data || [],
-    error: error?.message || null,
-  });
+  res.json({ success: !error, data: data || [], error: error?.message || null });
 });
 
 app.get("/memories", async (req, res) => {
@@ -399,21 +356,14 @@ app.get("/memories", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(50);
 
-  res.json({
-    success: !error,
-    data: data || [],
-    error: error?.message || null,
-  });
+  res.json({ success: !error, data: data || [], error: error?.message || null });
 });
 
 app.post("/memory", async (req, res) => {
   const { memory } = req.body;
 
   if (!memory || !memory.trim()) {
-    return res.json({
-      success: false,
-      message: "Memory empty hai.",
-    });
+    return res.json({ success: false, message: "Memory empty hai." });
   }
 
   const { data, error } = await supabase
@@ -421,34 +371,189 @@ app.post("/memory", async (req, res) => {
     .insert({ memory_text: memory })
     .select();
 
-  res.json({
-    success: !error,
-    data,
-    error: error?.message || null,
-  });
+  res.json({ success: !error, data: data || [], error: error?.message || null });
+});
+
+/* RESOURCE LIBRARY */
+
+app.post("/resources", async (req, res) => {
+  try {
+    const { title, subject, unit, resource_type, content, file_url, source } = req.body;
+
+    if (!title || !subject) {
+      return res.json({ success: false, message: "title aur subject required hai" });
+    }
+
+    const { data, error } = await supabase
+      .from("resources")
+      .insert({
+        title,
+        subject,
+        unit: unit || null,
+        resource_type: resource_type || "text",
+        content: content || null,
+        file_url: file_url || null,
+        source: source || "manual",
+      })
+      .select();
+
+    res.json({ success: !error, data: data || [], error: error?.message || null });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get("/resources", async (req, res) => {
+  const { subject } = req.query;
+
+  let query = supabase
+    .from("resources")
+    .select("*")
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (subject) query = query.eq("subject", subject);
+
+  const { data, error } = await query;
+
+  res.json({ success: !error, data: data || [], error: error?.message || null });
+});
+
+app.delete("/resources/:id", async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from("resources")
+    .update({ status: "deleted" })
+    .eq("id", id)
+    .select();
+
+  res.json({ success: !error, data: data || [], error: error?.message || null });
+});
+
+app.post("/resources/:id/analyze", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: resources, error } = await supabase
+      .from("resources")
+      .select("*")
+      .eq("id", id)
+      .limit(1);
+
+    if (error || !resources || resources.length === 0) {
+      return res.json({
+        success: false,
+        message: "Resource nahi mila",
+        error: error?.message || null,
+      });
+    }
+
+    const resource = resources[0];
+
+    const prompt = `
+Sneha AI, is study resource ko RGPV exam ke hisaab se analyze karo.
+
+Subject: ${resource.subject}
+Unit: ${resource.unit || "unknown"}
+Title: ${resource.title}
+Type: ${resource.resource_type}
+
+Content / Link:
+${resource.content || resource.file_url || "No content"}
+
+Output Hindi/Hinglish me do:
+1. Short summary
+2. Important points
+3. Important exam questions
+4. 10 MCQs with answers
+5. Last-minute revision notes
+`;
+
+    const result = await askSneha(prompt);
+
+    const { data, error: insertError } = await supabase
+      .from("resource_summaries")
+      .insert({
+        resource_id: id,
+        summary: result.reply,
+        important_points: result.reply,
+        important_questions: result.reply,
+        mcqs: result.reply,
+        revision_notes: result.reply,
+      })
+      .select();
+
+    res.json({
+      success: !insertError,
+      provider: result.provider,
+      data: data || [],
+      reply: result.reply,
+      error: insertError?.message || null,
+    });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get("/resource-summaries", async (req, res) => {
+  const { resource_id } = req.query;
+
+  let query = supabase
+    .from("resource_summaries")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (resource_id) query = query.eq("resource_id", resource_id);
+
+  const { data, error } = await query;
+
+  res.json({ success: !error, data: data || [], error: error?.message || null });
+});
+
+app.post("/topics", async (req, res) => {
+  const { subject, unit, topic, priority } = req.body;
+
+  if (!subject || !topic) {
+    return res.json({ success: false, message: "subject aur topic required hai" });
+  }
+
+  const { data, error } = await supabase
+    .from("subject_topics")
+    .insert({
+      subject,
+      unit: unit || null,
+      topic,
+      priority: priority || "normal",
+    })
+    .select();
+
+  res.json({ success: !error, data: data || [], error: error?.message || null });
+});
+
+app.get("/topics", async (req, res) => {
+  const { subject } = req.query;
+
+  let query = supabase
+    .from("subject_topics")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (subject) query = query.eq("subject", subject);
+
+  const { data, error } = await query;
+
+  res.json({ success: !error, data: data || [], error: error?.message || null });
 });
 
 app.get("/creator-status", (req, res) => {
   res.json({
     success: true,
     creatorStudio: {
-      scriptAI: Boolean(
-        process.env.GEMINI_API_KEY ||
-          process.env.GROQ_API_KEY ||
-          process.env.OPENROUTER_API_KEY
-      ),
+      scriptAI: Boolean(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY),
       voiceAI: Boolean(process.env.ELEVENLABS_API_KEY),
-      imageAI: Boolean(
-        process.env.STABILITY_API_KEY ||
-          process.env.HUGGINGFACE_API_KEY ||
-          process.env.REPLICATE_API_TOKEN ||
-          process.env.FAL_KEY
-      ),
-      videoAI: Boolean(
-        process.env.REPLICATE_API_TOKEN ||
-          process.env.FAL_KEY ||
-          process.env.RUNWAY_API_KEY
-      ),
+      imageAI: Boolean(process.env.STABILITY_API_KEY || process.env.HUGGINGFACE_API_KEY || process.env.REPLICATE_API_TOKEN || process.env.FAL_KEY),
+      videoAI: Boolean(process.env.REPLICATE_API_TOKEN || process.env.FAL_KEY || process.env.RUNWAY_API_KEY),
       alerts: Boolean(process.env.SERPAPI_API_KEY),
       email: Boolean(process.env.RESEND_API_KEY),
       weather: Boolean(process.env.OPENWEATHER_API_KEY),
@@ -456,22 +561,32 @@ app.get("/creator-status", (req, res) => {
   });
 });
 
+function splitTelegramMessage(text) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += 3900) {
+    chunks.push(text.slice(i, i + 3900));
+  }
+  return chunks;
+}
+
 if (process.env.TELEGRAM_BOT_TOKEN) {
-  const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-    polling: true,
+  const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+
+  bot.on("polling_error", (error) => {
+    console.log("Telegram polling error:", error.message);
   });
 
   bot.onText(/\/start/, async (msg) => {
     await bot.sendMessage(
       msg.chat.id,
-      "Namaste Yash ❤️ Main Sneha AI hoon. Website aur Telegram dono par tumhari same mentor."
+      "Namaste Yash ❤️ Main Sneha AI hoon. Website aur Telegram dono par tumhari same AI mentor."
     );
   });
 
   bot.onText(/\/help/, async (msg) => {
     await bot.sendMessage(
       msg.chat.id,
-      "Bas mujhe normal message bhejo. Main padhai, coding, health, career aur goals me help karungi ❤️"
+      "Bas normal message bhejo. Main padhai, coding, health, career aur goals me help karungi ❤️"
     );
   });
 
@@ -489,7 +604,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 
       await saveMessage("telegram-sneha", result.reply, result.provider);
 
-      await bot.sendMessage(msg.chat.id, result.reply);
+      const parts = splitTelegramMessage(result.reply);
+      for (const part of parts) {
+        await bot.sendMessage(msg.chat.id, part);
+      }
     } catch (error) {
       console.log("Telegram bot error:", error.message);
       await bot.sendMessage(
