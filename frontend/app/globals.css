@@ -1,79 +1,4 @@
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: #0f172a;
-  color: #f8fafc;
-  font-family: Arial, sans-serif;
-}
-
-.app {
-  min-height: 100vh;
-  padding: 18px;
-  max-width: 520px;
-  margin: auto;
-}
-
-.hero {
-  background: linear-gradient(135deg, #ec4899, #8b5cf6);
-  border-radius: 26px;
-  padding: 24px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-}
-
-.small {
-  margin: 0;
-  opacity: 0.9;
-  font-size: 14px;
-}
-
-h1 {
-  margin: 8px 0;
-  font-size: 28px;
-}
-
-.sub {
-  line-height: 1.5;
-  opacity: 0.95;
-}
-
-.statusBox {
-  margin: 16px 0;
-  background: #111827;
-  border: 1px solid #334155;
-  padding: 14px;
-  border-radius: 18px;
-  font-size: 14px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 20px;
-  padding: 16px;
-}
-
-.card h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
-}
-
-.card p {
-  margin: 0;
-  color: #cbd5e1;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.chatBox {
+.panel {
   margin-top: 18px;
   background: #020617;
   border: 1px solid #334155;
@@ -81,54 +6,72 @@ h1 {
   padding: 16px;
 }
 
-.chatBox h2 {
-  margin-top: 0;
-}
-
-.messages {
-  max-height: 330px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.msg {
-  padding: 12px;
-  border-radius: 16px;
-  line-height: 1.45;
-  font-size: 14px;
-}
-
-.ai {
-  background: #1e293b;
-  align-self: flex-start;
-}
-
-.user {
-  background: #2563eb;
-  align-self: flex-end;
-}
-
-.inputRow {
-  margin-top: 14px;
-  display: flex;
-  gap: 8px;
-}
-
-.inputRow input {
-  flex: 1;
+.panel input,
+.panel textarea,
+.panel select {
+  width: 100%;
+  margin-top: 10px;
   border: none;
   border-radius: 14px;
   padding: 14px;
   outline: none;
+  background: #f8fafc;
+  color: #020617;
 }
 
-.inputRow button {
+.panel textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.fullBtn {
+  width: 100%;
+  margin-top: 12px;
   border: none;
   border-radius: 14px;
-  padding: 14px 18px;
+  padding: 14px;
   background: #ec4899;
   color: white;
   font-weight: bold;
+}
+
+.muted {
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.resource {
+  margin-top: 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.resource h3 {
+  margin: 0 0 6px;
+}
+
+.resource p {
+  margin: 4px 0;
+}
+
+.resource a {
+  color: #93c5fd;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.row button {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 10px;
+  background: #334155;
+  color: white;
 }
