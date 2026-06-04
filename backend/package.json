@@ -1,7 +1,6 @@
 {
   "name": "sneha-ai-backend",
   "version": "1.0.0",
-  "description": "Sneha AI Backend",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js"
