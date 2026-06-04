@@ -1,4 +1,4 @@
-const express = require("express");
+ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const TelegramBot = require("node-telegram-bot-api");
@@ -48,6 +48,7 @@ async function getMemoryText() {
     .select("memory_text")
     .order("created_at", { ascending: false })
     .limit(10);
+
   return data?.map((m, i) => `${i + 1}. ${m.memory_text}`).join("\n") || "";
 }
 
@@ -80,11 +81,16 @@ ${message}
 }
 
 async function saveMessage(role, content, provider = null) {
-  await supabase.from("messages").insert({ role, content, provider });
+  try {
+    await supabase.from("messages").insert({ role, content, provider });
+  } catch (err) {
+    console.log("Message save failed:", err.message);
+  }
 }
 
 async function saveImportantMemory(message) {
   const t = message.toLowerCase();
+
   const shouldSave =
     t.includes("yaad rakh") ||
     t.includes("remember") ||
@@ -98,13 +104,18 @@ async function saveImportantMemory(message) {
 
   if (!shouldSave) return;
 
-  await supabase.from("memories").insert({
-    memory_text: message.slice(0, 500),
-  });
+  try {
+    await supabase.from("memories").insert({
+      memory_text: message.slice(0, 500),
+    });
+  } catch (err) {
+    console.log("Memory save failed:", err.message);
+  }
 }
 
 async function askGemini(message) {
   if (!process.env.GEMINI_API_KEY) throw new Error("Gemini key missing");
+
   const prompt = await buildPrompt(message);
 
   const res = await axios.post(
@@ -120,6 +131,7 @@ async function askGemini(message) {
 
 async function askGroq(message) {
   if (!process.env.GROQ_API_KEY) throw new Error("Groq key missing");
+
   const prompt = await buildPrompt(message);
 
   const res = await axios.post(
@@ -148,6 +160,7 @@ async function askGroq(message) {
 
 async function askOpenRouter(message) {
   if (!process.env.OPENROUTER_API_KEY) throw new Error("OpenRouter key missing");
+
   const prompt = await buildPrompt(message);
 
   const res = await axios.post(
@@ -178,6 +191,7 @@ async function askOpenRouter(message) {
 
 async function askOpenAI(message) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OpenAI key missing");
+
   const prompt = await buildPrompt(message);
 
   const res = await axios.post(
@@ -233,12 +247,21 @@ async function askSneha(message) {
 
   return {
     provider: "local",
-    reply: "Yash ❤️ AI providers busy hain, lekin main basic help kar sakti hoon. Topic simple words me likho.",
+    reply:
+      "Yash ❤️ AI providers busy hain, lekin main basic help kar sakti hoon. Topic simple words me likho.",
     debug: errors,
   };
 }
 
-async function saveResource({ title, subject, unit, resource_type, content, file_url, source }) {
+async function saveResource({
+  title,
+  subject,
+  unit,
+  resource_type,
+  content,
+  file_url,
+  source,
+}) {
   const { data, error } = await supabase
     .from("resources")
     .insert({
@@ -256,9 +279,15 @@ async function saveResource({ title, subject, unit, resource_type, content, file
   return data[0];
 }
 
-async function uploadToSupabaseStorage(fileBuffer, fileName, mimeType, subject = "General") {
+async function uploadToSupabaseStorage(
+  fileBuffer,
+  fileName,
+  mimeType,
+  subject = "General"
+) {
+  const safeSubject = subject.replace(/[^a-zA-Z0-9.\-_]/g, "-");
   const safeName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "-");
-  const path = `${subject}/${Date.now()}-${safeName}`;
+  const path = `${safeSubject}/${Date.now()}-${safeName}`;
 
   const { error } = await supabase.storage
     .from("study-files")
@@ -267,7 +296,11 @@ async function uploadToSupabaseStorage(fileBuffer, fileName, mimeType, subject =
       upsert: true,
     });
 
-  if (error) return null;
+  if (error) {
+    console.log("Storage upload failed:", error.message);
+    return null;
+  }
+
   return path;
 }
 
@@ -389,10 +422,14 @@ app.get("/memories", async (req, res) => {
 
 app.post("/resources", async (req, res) => {
   try {
-    const { title, subject, unit, resource_type, content, file_url, source } = req.body;
+    const { title, subject, unit, resource_type, content, file_url, source } =
+      req.body;
 
     if (!title || !subject) {
-      return res.json({ success: false, message: "title aur subject required hai" });
+      return res.json({
+        success: false,
+        message: "title aur subject required hai",
+      });
     }
 
     const resource = await saveResource({
@@ -470,7 +507,10 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     }
 
     if (!title || !subject) {
-      return res.json({ success: false, message: "title aur subject required hai" });
+      return res.json({
+        success: false,
+        message: "title aur subject required hai",
+      });
     }
 
     let extractedText = "";
@@ -481,10 +521,12 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       extractedText = parsed.text?.slice(0, 20000) || "";
       resourceType = "pdf";
     } else if (req.file.mimetype.startsWith("image/")) {
-      extractedText = "Image upload hui hai. OCR/image reading next version me add hogi.";
+      extractedText =
+        "Image upload hui hai. OCR/image reading next version me add hogi.";
       resourceType = "image";
     } else if (req.file.mimetype.startsWith("video/")) {
-      extractedText = "Video upload hua hai. Video lecture analysis next version me add hoga.";
+      extractedText =
+        "Video upload hua hai. Video lecture analysis next version me add hoga.";
       resourceType = "video";
     }
 
@@ -520,10 +562,23 @@ app.get("/creator-status", (req, res) => {
   res.json({
     success: true,
     creatorStudio: {
-      scriptAI: Boolean(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY),
+      scriptAI: Boolean(
+        process.env.GEMINI_API_KEY ||
+          process.env.GROQ_API_KEY ||
+          process.env.OPENROUTER_API_KEY
+      ),
       voiceAI: Boolean(process.env.ELEVENLABS_API_KEY),
-      imageAI: Boolean(process.env.STABILITY_API_KEY || process.env.HUGGINGFACE_API_KEY || process.env.REPLICATE_API_TOKEN || process.env.FAL_KEY),
-      videoAI: Boolean(process.env.REPLICATE_API_TOKEN || process.env.FAL_KEY || process.env.RUNWAY_API_KEY),
+      imageAI: Boolean(
+        process.env.STABILITY_API_KEY ||
+          process.env.HUGGINGFACE_API_KEY ||
+          process.env.REPLICATE_API_TOKEN ||
+          process.env.FAL_KEY
+      ),
+      videoAI: Boolean(
+        process.env.REPLICATE_API_TOKEN ||
+          process.env.FAL_KEY ||
+          process.env.RUNWAY_API_KEY
+      ),
       alerts: Boolean(process.env.SERPAPI_API_KEY),
       email: Boolean(process.env.RESEND_API_KEY),
       weather: Boolean(process.env.OPENWEATHER_API_KEY),
@@ -547,12 +602,16 @@ function telegramKeyboard() {
 
 function splitTelegramMessage(text) {
   const chunks = [];
-  for (let i = 0; i < text.length; i += 3900) chunks.push(text.slice(i, i + 3900));
+  for (let i = 0; i < text.length; i += 3900) {
+    chunks.push(text.slice(i, i + 3900));
+  }
   return chunks;
 }
 
 if (process.env.TELEGRAM_BOT_TOKEN) {
-  const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+  const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+    polling: true,
+  });
 
   bot.on("polling_error", (error) => {
     console.log("Telegram polling error:", error.message);
@@ -568,7 +627,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 
   bot.on("document", async (msg) => {
     try {
-      await bot.sendMessage(msg.chat.id, "File mil gayi Yash ❤️ process kar rahi hoon...");
+      await bot.sendMessage(
+        msg.chat.id,
+        "File mil gayi Yash ❤️ process kar rahi hoon..."
+      );
 
       const file = await bot.getFile(msg.document.file_id);
       const filePath = await bot.downloadFile(msg.document.file_id, "/tmp");
@@ -605,7 +667,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 
       await bot.sendMessage(
         msg.chat.id,
-        `Saved ✅\nTitle: ${title}\nAb Sneha isko analyze kar sakti hai.`
+        `Saved ✅\nTitle: ${title}\nResource ID: ${resource.id}\nAb Sneha isko analyze kar sakti hai.`
       );
 
       if (extractedText) {
@@ -616,7 +678,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       }
     } catch (err) {
       console.log("Telegram document error:", err.message);
-      await bot.sendMessage(msg.chat.id, "Yash, file process me issue aa gaya.");
+      await bot.sendMessage(
+        msg.chat.id,
+        "Yash, file process me issue aa gaya."
+      );
     }
   });
 
@@ -642,19 +707,25 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       if (msg.text === "📚 Study Hub") {
         return bot.sendMessage(
           msg.chat.id,
-          "Study Hub 📚\nTum PDF/text/topic bhej sakte ho. Example:\nDBMS Unit 1 Normalization samjhao"
+          "Study Hub 📚\nTum PDF/text/topic bhej sakte ho. Example:\nDBMS Unit 1 Normalization samjhao",
+          telegramKeyboard()
         );
       }
 
       if (msg.text === "🧠 Memory") {
         const memories = await getMemoryText();
-        return bot.sendMessage(msg.chat.id, memories || "Abhi koi memory save nahi hai.");
+        return bot.sendMessage(
+          msg.chat.id,
+          memories || "Abhi koi memory save nahi hai.",
+          telegramKeyboard()
+        );
       }
 
       if (msg.text === "📎 Add Resource") {
         return bot.sendMessage(
           msg.chat.id,
-          "Resource add karne ke liye PDF bhejo ya text likho:\nadd resource: DBMS Unit 1 - Database basics"
+          "Resource add karne ke liye PDF bhejo ya text likho:\nadd resource: DBMS Unit 1 - Database basics",
+          telegramKeyboard()
         );
       }
 
@@ -667,48 +738,26 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           .limit(10);
 
         if (!data || data.length === 0) {
-          return bot.sendMessage(msg.chat.id, "Abhi koi resource save nahi hai.");
+          return bot.sendMessage(
+            msg.chat.id,
+            "Abhi koi resource save nahi hai.",
+            telegramKeyboard()
+          );
         }
 
         const list = data
-          .map((r, i) => `${i + 1}. ${r.title} — ${r.subject} ${r.unit || ""} (${r.resource_type})`)
+          .map(
+            (r, i) =>
+              `${i + 1}. ${r.title} — ${r.subject} ${r.unit || ""} (${r.resource_type})`
+          )
           .join("\n");
 
-        return bot.sendMessage(msg.chat.id, list);
+        return bot.sendMessage(msg.chat.id, list, telegramKeyboard());
       }
 
       if (msg.text === "🎯 Goals") {
         return bot.sendMessage(
           msg.chat.id,
-          "Tumhara main goal: backlog + 4th sem clear karna, coding strong karna, career banana ❤️"
-        );
-      }
-
-      if (msg.text === "🎬 Creator Studio") {
-        return bot.sendMessage(
-          msg.chat.id,
-          "Creator Studio 🎬\nBolo: Sneha, DBMS topic ka YouTube script banao."
-        );
-      }
-
-      if (msg.text === "❤️ Health") {
-        return bot.sendMessage(
-          msg.chat.id,
-          "Health mode ❤️\nPaani piyo, aankhon ko rest do, aur 25 min study + 5 min break follow karo."
-        );
-      }
-
-      if (msg.text.toLowerCase().startsWith("add resource:")) {
-        const content = msg.text.replace(/add resource:/i, "").trim();
-
-        const resource = await saveResource({
-          title: content.slice(0, 60),
-          subject: "Telegram Text",
-          unit: null,
-          resource_type: "text",
-          content,
-          file_url: null,
-          source: "telegram",
-        });
-
-        return bot.sendMessage(msg.chat.id, `Resource saved ✅\nID: ${resource
+          "Tumhara main goal: backlog + 4th sem clear karna, coding strong karna, career banana ❤️",
+          telegramKeyboard()
+        )
