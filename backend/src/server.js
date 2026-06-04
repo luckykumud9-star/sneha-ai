@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const TelegramBot = require("node-telegram-bot-api");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
@@ -62,7 +63,6 @@ async function getMemoryText() {
     .limit(10);
 
   if (!data || data.length === 0) return "";
-
   return data.map((m, i) => `${i + 1}. ${m.memory_text}`).join("\n");
 }
 
@@ -151,7 +151,7 @@ app.get("/health", (req, res) => {
     groqSet: Boolean(process.env.GROQ_API_KEY),
     openrouterSet: Boolean(process.env.OPENROUTER_API_KEY),
     openaiSet: Boolean(process.env.OPENAI_API_KEY),
-    huggingfaceSet: Boolean(process.env.HUGGINGFACE_API_KEY),
+    telegramSet: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     elevenlabsSet: Boolean(process.env.ELEVENLABS_API_KEY),
     replicateSet: Boolean(process.env.REPLICATE_API_TOKEN),
     falSet: Boolean(process.env.FAL_KEY),
@@ -160,7 +160,6 @@ app.get("/health", (req, res) => {
     serpapiSet: Boolean(process.env.SERPAPI_API_KEY),
     resendSet: Boolean(process.env.RESEND_API_KEY),
     openweatherSet: Boolean(process.env.OPENWEATHER_API_KEY),
-    telegramSet: Boolean(process.env.TELEGRAM_BOT_TOKEN),
   });
 });
 
@@ -191,9 +190,7 @@ async function askGemini(message) {
 
   const response = await axios.post(
     url,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-    },
+    { contents: [{ parts: [{ text: prompt }] }] },
     { timeout: 30000 }
   );
 
@@ -305,7 +302,7 @@ function localSnehaFallback(message) {
   }
 
   if (text.includes("stress") || text.includes("sad") || text.includes("thak")) {
-    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo, aankhon ko rest do. Tum loser nahi ho. Abhi sirf 15 minute ka chhota target lete hain.";
+    return "Yash ❤️ pehle 2 minute normal breathing karo, paani piyo, aankhon ko rest do. Abhi sirf 15 minute ka chhota target lete hain.";
   }
 
   return "Yash ❤️ online AI providers busy/quota issue me ho sakte hain, lekin main basic help kar sakti hoon. Tum topic simple words me likho.";
@@ -458,6 +455,52 @@ app.get("/creator-status", (req, res) => {
     },
   });
 });
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+    polling: true,
+  });
+
+  bot.onText(/\/start/, async (msg) => {
+    await bot.sendMessage(
+      msg.chat.id,
+      "Namaste Yash ❤️ Main Sneha AI hoon. Website aur Telegram dono par tumhari same mentor."
+    );
+  });
+
+  bot.onText(/\/help/, async (msg) => {
+    await bot.sendMessage(
+      msg.chat.id,
+      "Bas mujhe normal message bhejo. Main padhai, coding, health, career aur goals me help karungi ❤️"
+    );
+  });
+
+  bot.on("message", async (msg) => {
+    try {
+      if (!msg.text) return;
+      if (msg.text.startsWith("/start") || msg.text.startsWith("/help")) return;
+
+      await bot.sendChatAction(msg.chat.id, "typing");
+
+      await saveMessage("telegram-yash", msg.text);
+      await saveImportantMemory(msg.text);
+
+      const result = await askSneha(msg.text);
+
+      await saveMessage("telegram-sneha", result.reply, result.provider);
+
+      await bot.sendMessage(msg.chat.id, result.reply);
+    } catch (error) {
+      console.log("Telegram bot error:", error.message);
+      await bot.sendMessage(
+        msg.chat.id,
+        "Yash ❤️ abhi Telegram connection me issue hai. Thodi der baad try karo."
+      );
+    }
+  });
+
+  console.log("Sneha Telegram Bot Running ❤️");
+}
 
 app.listen(PORT, () => {
   console.log(`Sneha AI backend running on port ${PORT}`);
