@@ -5,6 +5,7 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const TelegramBot = require("node-telegram-bot-api");
 const { createClient } = require("@supabase/supabase-js");
+const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -36,14 +37,19 @@ Tum Sneha YS ho — Yash ki Hindi/Hinglish personal AI mentor, study coach, prog
 
 Rules:
 - Hindi/Hinglish me friendly, caring, practical jawab do.
+- Greeting par sirf warm greeting do, purana DBMS/syllabus context force mat karo.
 - Yash ko step-by-step guide karo.
 - Study me zero se hero approach follow karo.
 - Programming me concept, example, dry run, mistake, practice aur project do.
 - Creator me plan -> lock -> generate -> review -> improve -> download workflow follow karo.
 - Cybersecurity me sirf legal, ethical, defensive help do.
 - Illegal hacking, password stealing, malware, private info stealing, unauthorized access kabhi mat sikhana.
-- Agar user stressed ho to supportive tone me jawab do.
 `;
+
+function isGreetingOnly(message = "") {
+  const t = message.toLowerCase().trim();
+  return ["hi", "hello", "hey", "hii", "helo", "namaste", "namaskar", "ok", "hmm"].includes(t);
+}
 
 async function logMission(module, event, details = "") {
   try {
@@ -84,43 +90,82 @@ async function updateJob(id, status, progress, details, eta = null) {
     console.log("Job update failed:", err.message);
   }
 }
+async function getMemories(userMessage = "") {
+  if (isGreetingOnly(userMessage)) return "";
 
-async function getMemories() {
+  const text = userMessage.toLowerCase();
+
+  const memoryKeywords = [
+    "yaad",
+    "remember",
+    "goal",
+    "semester",
+    "subject",
+    "dbms",
+    "python",
+    "coding",
+    "creator",
+    "video",
+    "health",
+    "career",
+    "syllabus",
+    "exam",
+    "notes",
+    "pdf",
+    "project",
+    "sneha",
+    "yash"
+  ];
+
+  const shouldUseMemory = memoryKeywords.some((k) => text.includes(k));
+  if (!shouldUseMemory) return "";
+
   const { data } = await supabase
     .from("memories")
     .select("category,title,content")
     .order("created_at", { ascending: false })
-    .limit(15);
+    .limit(6);
 
   if (!data || data.length === 0) return "";
+
   return data
-    .map((m, i) => `${i + 1}. [${m.category || "general"}] ${m.title || ""}: ${m.content || ""}`)
+    .map(
+      (m, i) =>
+        `${i + 1}. [${m.category || "general"}] ${m.title || ""}: ${
+          m.content || ""
+        }`
+    )
     .join("\n");
 }
 
-async function getRecentMessages() {
+async function getRecentMessages(userMessage = "") {
+  if (isGreetingOnly(userMessage)) return "";
+
   const { data } = await supabase
     .from("messages")
     .select("role,content")
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(6);
 
   if (!data || data.length === 0) return "";
   return data.reverse().map((m) => `${m.role}: ${m.content}`).join("\n");
 }
 
 async function buildPrompt(userMessage) {
-  const memories = await getMemories();
-  const history = await getRecentMessages();
+  const memories = await getMemories(userMessage);
+  const history = await getRecentMessages(userMessage);
 
   return `
 ${SNEHA_SYSTEM_PROMPT}
 
-Saved Memories:
-${memories || "Abhi koi saved memory nahi."}
+Relevant Memories:
+${memories || "No relevant memory for this message."}
 
-Recent Chat:
-${history || "Abhi koi recent chat nahi."}
+Recent Relevant Chat:
+${history || "No relevant recent chat."}
+
+Important:
+Agar current message sirf greeting hai jaise Hi, Hello, Namaste, to normal greeting do. Purane syllabus, DBMS ya PDF context ko force mat karo.
 
 Yash ka current message:
 ${userMessage}
@@ -143,6 +188,7 @@ async function saveMessage(role, content, provider = null, source = "website") {
 async function saveMemoryIfImportant(message) {
   try {
     const t = message.toLowerCase();
+
     const important =
       t.includes("yaad rakh") ||
       t.includes("remember") ||
@@ -153,7 +199,9 @@ async function saveMemoryIfImportant(message) {
       t.includes("career") ||
       t.includes("health") ||
       t.includes("creator") ||
-      t.includes("programming");
+      t.includes("programming") ||
+      t.includes("mera syllabus") ||
+      t.includes("meri story");
 
     if (!important) return;
 
@@ -180,13 +228,10 @@ async function askGemini(message) {
     { timeout: 30000 }
   );
 
-  const reply =
-    response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
+  const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!reply) throw new Error("Gemini empty response");
   return reply;
-}
-
+        }
 async function askGroq(message) {
   if (!process.env.GROQ_API_KEY) throw new Error("Groq key missing");
 
@@ -310,15 +355,15 @@ async function askSneha(message) {
     debug: errors
   };
 }
-
 async function extractPdfText(buffer) {
   const parsed = await pdfParse(buffer);
   return (parsed.text || "").trim();
 }
 
 async function uploadToStorage(buffer, filename, mimetype, folder = "uploads") {
+  const safeFolder = (folder || "uploads").replace(/[^a-zA-Z0-9.\-_]/g, "-");
   const safeName = filename.replace(/[^a-zA-Z0-9.\-_]/g, "-");
-  const path = `${folder}/${Date.now()}-${safeName}`;
+  const path = `${safeFolder}/${Date.now()}-${safeName}`;
 
   const { error } = await supabase.storage
     .from("study-files")
@@ -337,7 +382,9 @@ async function uploadToStorage(buffer, filename, mimetype, folder = "uploads") {
 
 async function analyzeResource(resource) {
   if (!resource.content || resource.content.length < 80) {
-    throw new Error("Readable content nahi mila. Scanned PDF/photo ke liye OCR required hai.");
+    throw new Error(
+      "Readable content nahi mila. Scanned PDF/photo ke liye OCR required hai."
+    );
   }
 
   const prompt = `
@@ -357,7 +404,8 @@ Output Hindi/Hinglish me:
 4. Expected exam questions
 5. 10 MCQs with answers
 6. Flashcards
-7. Last-minute revision plan
+7. Common mistakes
+8. Last-minute revision plan
 `;
 
   const result = await askSneha(prompt);
@@ -383,7 +431,29 @@ Output Hindi/Hinglish me:
   };
 }
 
-function telegramKeyboard() {
+async function saveAsset({ project_id, asset_type, file_url }) {
+  const { data, error } = await supabase
+    .from("assets")
+    .insert({
+      project_id: project_id || null,
+      asset_type,
+      file_url
+    })
+    .select();
+
+  if (error) throw new Error(error.message);
+  return data[0];
+}
+
+function splitTelegram(text) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += 3800) {
+    chunks.push(text.slice(i, i + 3800));
+  }
+  return chunks;
+}
+
+function mainTelegramKeyboard() {
   return {
     reply_markup: {
       keyboard: [
@@ -397,12 +467,30 @@ function telegramKeyboard() {
   };
 }
 
-function splitTelegram(text) {
-  const chunks = [];
-  for (let i = 0; i < text.length; i += 3800) {
-    chunks.push(text.slice(i, i + 3800));
-  }
-  return chunks;
+function creatorTelegramKeyboard() {
+  return {
+    reply_markup: {
+      keyboard: [
+        ["🎥 Video Project", "🖼 Image Studio"],
+        ["🎭 Characters", "🎙 Voice"],
+        ["📋 My Projects", "🔙 Main Menu"]
+      ],
+      resize_keyboard: true
+    }
+  };
+}
+
+function learnTelegramKeyboard() {
+  return {
+    reply_markup: {
+      keyboard: [
+        ["📄 Upload PDF", "💻 Programming"],
+        ["🧠 Quiz", "📚 My Resources"],
+        ["🎓 Certificates", "🔙 Main Menu"]
+      ],
+      resize_keyboard: true
+    }
+  };
 }
 
 /* =========================
@@ -418,7 +506,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", async (req, res) => {
-  const status = {
+  const health = {
     success: true,
     service: "Sneha YS",
     status: "ok",
@@ -445,7 +533,7 @@ app.get("/health", async (req, res) => {
     });
   } catch {}
 
-  res.json(status);
+  res.json(health);
 });
 
 app.post("/chat", async (req, res) => {
@@ -453,7 +541,10 @@ app.post("/chat", async (req, res) => {
     const message = req.body.message;
 
     if (!message || !message.trim()) {
-      return res.json({ success: false, reply: "Yash, message khaali hai." });
+      return res.json({
+        success: false,
+        reply: "Yash, message khaali hai."
+      });
     }
 
     await saveMessage("yash", message, null, "website");
@@ -470,15 +561,22 @@ app.post("/chat", async (req, res) => {
       debug: result.debug || null
     });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    res.json({
+      success: false,
+      error: err.message
+    });
   }
 });
 
 app.get("/chat-test", async (req, res) => {
-  const result = await askSneha("Sneha YS mujhe DBMS zero se samjhao");
-  res.json({ success: true, ...result });
+  const result = await askSneha("Hi");
+  res.json({
+    success: true,
+    provider: result.provider,
+    reply: result.reply,
+    debug: result.debug || null
+  });
 });
-
 /* =========================
    MEMORY / MISSION / JOBS
 ========================= */
@@ -490,11 +588,22 @@ app.get("/memories", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.post("/memories", async (req, res) => {
   const { category, title, content, importance } = req.body;
+
+  if (!content) {
+    return res.json({
+      success: false,
+      message: "content required hai"
+    });
+  }
 
   const { data, error } = await supabase
     .from("memories")
@@ -506,7 +615,11 @@ app.post("/memories", async (req, res) => {
     })
     .select();
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.get("/mission", async (req, res) => {
@@ -516,7 +629,11 @@ app.get("/mission", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(80);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.get("/jobs", async (req, res) => {
@@ -526,15 +643,29 @@ app.get("/jobs", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(80);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.post("/jobs", async (req, res) => {
   try {
-    const job = await createJob(req.body.job_type || "manual", req.body.details || "");
-    res.json({ success: true, data: [job] });
+    const job = await createJob(
+      req.body.job_type || "manual",
+      req.body.details || ""
+    );
+
+    res.json({
+      success: true,
+      data: [job]
+    });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    res.json({
+      success: false,
+      error: err.message
+    });
   }
 });
 
@@ -549,14 +680,21 @@ app.get("/resources", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.post("/resources", async (req, res) => {
   const { title, subject, unit, resource_type, content, file_url } = req.body;
 
   if (!title) {
-    return res.json({ success: false, message: "title required hai" });
+    return res.json({
+      success: false,
+      message: "title required hai"
+    });
   }
 
   const { data, error } = await supabase
@@ -573,17 +711,31 @@ app.post("/resources", async (req, res) => {
 
   await logMission("resources", "resource_created", title);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
-
 app.post("/upload", upload.single("file"), async (req, res) => {
   let job = null;
 
   try {
     const { title, subject, unit } = req.body;
 
-    if (!req.file) return res.json({ success: false, message: "File required hai" });
-    if (!title) return res.json({ success: false, message: "Title required hai" });
+    if (!req.file) {
+      return res.json({
+        success: false,
+        message: "File required hai"
+      });
+    }
+
+    if (!title) {
+      return res.json({
+        success: false,
+        message: "Title required hai"
+      });
+    }
 
     job = await createJob("file_upload_analysis", "File upload started");
     await updateJob(job.id, "running", 15, "Reading file", "1-3 min");
@@ -600,14 +752,15 @@ app.post("/upload", upload.single("file"), async (req, res) => {
         return res.json({
           success: false,
           message:
-            "PDF upload hui, lekin readable text nahi mila. Ye scanned/photo PDF lag rahi hai. OCR next version me add karna hoga."
+            "PDF upload hui, lekin readable text nahi mila. Ye scanned/photo PDF lag rahi hai. OCR next phase me add karna hoga."
         });
       }
     } else if (req.file.mimetype.startsWith("image/")) {
-      content = "Image uploaded. OCR/vision analysis advanced route me add hoga.";
+      content = "Image uploaded. OCR/vision analysis next phase me add hoga.";
       resourceType = "image";
     } else if (req.file.mimetype.startsWith("video/")) {
-      content = "Video uploaded. Video analysis/shorts workflow creator route me handle hoga.";
+      content =
+        "Video uploaded. Video analysis/shorts workflow creator route me handle hoga.";
       resourceType = "video";
     } else {
       content = "File uploaded.";
@@ -698,21 +851,23 @@ app.get("/projects", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(80);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.post("/projects", async (req, res) => {
   try {
-    const {
-      title,
-      category,
-      platform,
-      style,
-      voice_type,
-      story
-    } = req.body;
+    const { title, category, platform, style, voice_type, story } = req.body;
 
-    if (!title) return res.json({ success: false, message: "title required hai" });
+    if (!title) {
+      return res.json({
+        success: false,
+        message: "title required hai"
+      });
+    }
 
     const { data, error } = await supabase
       .from("creator_projects")
@@ -736,7 +891,6 @@ app.post("/projects", async (req, res) => {
     res.json({ success: false, error: err.message });
   }
 });
-
 app.post("/projects/:id/blueprint", async (req, res) => {
   let job = null;
 
@@ -799,7 +953,164 @@ Output:
 });
 
 /* =========================
-   OPPORTUNITIES
+   MEDIA ENGINE: IMAGE + VOICE
+========================= */
+
+app.post("/media/image", async (req, res) => {
+  let job = null;
+
+  try {
+    const { prompt, project_id, style } = req.body;
+
+    if (!prompt) {
+      return res.json({ success: false, message: "prompt required hai" });
+    }
+
+    if (!process.env.STABILITY_API_KEY) {
+      throw new Error("STABILITY_API_KEY missing hai");
+    }
+
+    job = await createJob("image_generation", "Generating image");
+    await updateJob(job.id, "running", 20, "Trying Stability AI", "1-2 min");
+
+    const formData = new FormData();
+    formData.append(
+      "prompt",
+      prompt + "\nStyle: " + (style || "cinematic, high quality, detailed")
+    );
+    formData.append("output_format", "png");
+
+    const response = await axios.post(
+      "https://api.stability.ai/v2beta/stable-image/generate/core",
+      formData,
+      {
+        headers: {
+          Authorization: "Bearer " + process.env.STABILITY_API_KEY,
+          Accept: "image/*"
+        },
+        responseType: "arraybuffer",
+        timeout: 60000
+      }
+    );
+
+    await updateJob(job.id, "running", 70, "Saving image", "30 sec");
+
+    const buffer = Buffer.from(response.data);
+    const storagePath = await uploadToStorage(
+      buffer,
+      "sneha-ys-image.png",
+      "image/png",
+      "media-images"
+    );
+
+    const asset = await saveAsset({
+      project_id,
+      asset_type: "image",
+      file_url: storagePath
+    });
+
+    await updateJob(job.id, "completed", 100, "Image generated", "0");
+
+    res.json({
+      success: true,
+      provider: "stability",
+      asset,
+      file_url: storagePath
+    });
+  } catch (err) {
+    if (job) await updateJob(job.id, "failed", 100, err.message, "0");
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.post("/media/voice", async (req, res) => {
+  let job = null;
+
+  try {
+    const { text, project_id, voice_id } = req.body;
+
+    if (!text) {
+      return res.json({ success: false, message: "text required hai" });
+    }
+
+    if (!process.env.ELEVENLABS_API_KEY) {
+      throw new Error("ELEVENLABS_API_KEY missing hai");
+    }
+
+    job = await createJob("voice_generation", "Generating Hindi voice");
+    await updateJob(job.id, "running", 25, "Calling ElevenLabs", "1-2 min");
+
+    const selectedVoice =
+      voice_id || process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+
+    const response = await axios.post(
+      "https://api.elevenlabs.io/v1/text-to-speech/" + selectedVoice,
+      {
+        text,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: {
+          stability: 0.45,
+          similarity_boost: 0.8,
+          style: 0.35,
+          use_speaker_boost: true
+        }
+      },
+      {
+        headers: {
+          "xi-api-key": process.env.ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg"
+        },
+        responseType: "arraybuffer",
+        timeout: 60000
+      }
+    );
+
+    await updateJob(job.id, "running", 70, "Saving voice audio", "30 sec");
+
+    const buffer = Buffer.from(response.data);
+    const storagePath = await uploadToStorage(
+      buffer,
+      "sneha-ys-voice.mp3",
+      "audio/mpeg",
+      "media-voices"
+    );
+
+    const asset = await saveAsset({
+      project_id,
+      asset_type: "voice",
+      file_url: storagePath
+    });
+
+    await updateJob(job.id, "completed", 100, "Voice generated", "0");
+
+    res.json({
+      success: true,
+      provider: "elevenlabs",
+      asset,
+      file_url: storagePath
+    });
+  } catch (err) {
+    if (job) await updateJob(job.id, "failed", 100, err.message, "0");
+    res.json({ success: false, error: err.message });
+  }
+});
+app.get("/assets", async (req, res) => {
+  const { data, error } = await supabase
+    .from("assets")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
+});
+
+/* =========================
+   OPPORTUNITIES / PROVIDERS / DOCTOR
 ========================= */
 
 app.get("/opportunities", async (req, res) => {
@@ -809,7 +1120,11 @@ app.get("/opportunities", async (req, res) => {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  res.json({ success: !error, data: data || [], error: error?.message || null });
+  res.json({
+    success: !error,
+    data: data || [],
+    error: error?.message || null
+  });
 });
 
 app.post("/opportunities/search", async (req, res) => {
@@ -835,7 +1150,6 @@ app.post("/opportunities/search", async (req, res) => {
     });
 
     const results = response.data?.organic_results || [];
-
     const saved = [];
 
     for (const item of results.slice(0, 8)) {
@@ -858,10 +1172,6 @@ app.post("/opportunities/search", async (req, res) => {
     res.json({ success: false, error: err.message });
   }
 });
-
-/* =========================
-   PROVIDERS / SELF HEAL BASIC
-========================= */
 
 app.get("/providers", async (req, res) => {
   const providers = [
@@ -924,7 +1234,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     await bot.sendMessage(
       msg.chat.id,
       "Namaste Yash ❤️ Main Sneha YS hoon. Website aur Telegram dono par tumhari AI mentor, creator assistant aur study coach.",
-      telegramKeyboard()
+      mainTelegramKeyboard()
     );
   });
 
@@ -933,14 +1243,13 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       await bot.sendMessage(msg.chat.id, "File mili ✅ PDF text read kar rahi hoon...");
 
       const filePath = await bot.downloadFile(msg.document.file_id, "/tmp");
-      const fs = require("fs");
       const buffer = fs.readFileSync(filePath);
 
       if (msg.document.mime_type !== "application/pdf") {
         return bot.sendMessage(
           msg.chat.id,
           "Abhi Telegram par real analysis text-based PDF ke liye enabled hai. Dusri file ke liye website upload use karo.",
-          telegramKeyboard()
+          mainTelegramKeyboard()
         );
       }
 
@@ -949,8 +1258,8 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       if (!text || text.length < 80) {
         return bot.sendMessage(
           msg.chat.id,
-          "PDF me readable text nahi mila. Ye scanned/photo PDF lag rahi hai. OCR later add karenge.",
-          telegramKeyboard()
+          "PDF me readable text nahi mila. Ye scanned/photo PDF lag rahi hai. OCR next phase me add karenge.",
+          mainTelegramKeyboard()
         );
       }
 
@@ -976,13 +1285,13 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       const analysis = await analyzeResource(data[0]);
 
       for (const part of splitTelegram(analysis.reply)) {
-        await bot.sendMessage(msg.chat.id, part, telegramKeyboard());
+        await bot.sendMessage(msg.chat.id, part, mainTelegramKeyboard());
       }
     } catch (err) {
       await bot.sendMessage(
         msg.chat.id,
         "PDF process error: " + err.message,
-        telegramKeyboard()
+        mainTelegramKeyboard()
       );
     }
   });
@@ -992,102 +1301,76 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       if (!msg.text) return;
       if (msg.text.startsWith("/start")) return;
 
+      if (msg.text === "🔙 Main Menu") {
+        return bot.sendMessage(msg.chat.id, "Main menu ✅", mainTelegramKeyboard());
+      }
+
       if (msg.text === "🎬 Create") {
         return bot.sendMessage(
           msg.chat.id,
-          "🎬 Creator Studio\n\nVideo banana start karne ke liye likho:\ncreate project: title | category | platform | style | voice | story",
-          telegramKeyboard()
+          "🎬 Creator Studio\nCategory choose karo ya project command bhejo.",
+          creatorTelegramKeyboard()
         );
       }
 
       if (msg.text === "📚 Learn") {
         return bot.sendMessage(
           msg.chat.id,
-          "📚 Academy\nPDF bhejo ya pucho:\nPython zero se sikhao\nDBMS ka roadmap banao\nWebsite kaise banti hai?",
-          telegramKeyboard()
+          "📚 Academy\nPDF bhejo ya programming/study option choose karo.",
+          learnTelegramKeyboard()
         );
       }
 
-      if (msg.text === "📊 Dashboard") {
-        const { data } = await supabase
-          .from("jobs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(5);
-
-        const text =
-          !data || data.length === 0
-            ? "Abhi koi running job nahi."
-            : data
-                .map(
-                  (j, i) =>
-                    `${i + 1}. ${j.job_type} — ${j.status} — ${j.progress}%\n${j.details || ""}`
-                )
-                .join("\n\n");
-
-        return bot.sendMessage(msg.chat.id, text, telegramKeyboard());
-      }
-
-      if (msg.text === "🩺 Health") {
-        const health =
-          "Sneha YS Health:\n" +
-          "Gemini: " + (process.env.GEMINI_API_KEY ? "✅" : "❌") + "\n" +
-          "Groq: " + (process.env.GROQ_API_KEY ? "✅" : "❌") + "\n" +
-          "OpenRouter: " + (process.env.OPENROUTER_API_KEY ? "✅" : "❌") + "\n" +
-          "Telegram: ✅\n" +
-          "Supabase: " + (supabaseKey ? "✅" : "❌");
-
-        return bot.sendMessage(msg.chat.id, health, telegramKeyboard());
-      }
-
-      if (msg.text.toLowerCase().startsWith("create project:")) {
-        const raw = msg.text.replace(/create project:/i, "").trim();
-        const parts = raw.split("|").map((p) => p.trim());
-
-        const { data, error } = await supabase
-          .from("creator_projects")
-          .insert({
-            title: parts[0] || "Telegram Creator Project",
-            category: parts[1] || "AI Character Story",
-            platform: parts[2] || "YouTube Shorts",
-            style: parts[3] || "Cinematic",
-            voice_type: parts[4] || "Young Hindi Female",
-            story: parts[5] || raw,
-            status: "draft"
-          })
-          .select();
-
-        if (error) throw new Error(error.message);
-
+      if (msg.text === "🎥 Video Project") {
         return bot.sendMessage(
           msg.chat.id,
-          "Project created ✅\nID: " + data[0].id + "\nWebsite me blueprint generate kar sakte ho.",
-          telegramKeyboard()
+          "Video project banane ke liye format:\n\ncreate project: Title | Category | Platform | Style | Voice | Story\n\nExample:\ncreate project: Sneha Episode 1 | AI Character Story | YouTube Shorts | Cinematic | Young Hindi Female | Yash aur Sneha ek AI lab mystery solve karte hain.",
+          creatorTelegramKeyboard()
         );
       }
 
-      await saveMessage("telegram-yash", msg.text, null, "telegram");
-      await saveMemoryIfImportant(msg.text);
-
-      const result = await askSneha(msg.text);
-
-      await saveMessage("telegram-sneha", result.reply, result.provider, "telegram");
-
-      for (const part of splitTelegram(result.reply)) {
-        await bot.sendMessage(msg.chat.id, part, telegramKeyboard());
+      if (msg.text === "🖼 Image Studio") {
+        return bot.sendMessage(
+          msg.chat.id,
+          "Image generate ke liye website me Creator/Media Studio use karo. Telegram direct image generation next phase me add hoga.",
+          creatorTelegramKeyboard()
+        );
       }
-    } catch (err) {
-      await bot.sendMessage(
-        msg.chat.id,
-        "Yash ❤️ Telegram error: " + err.message,
-        telegramKeyboard()
-      );
-    }
-  });
 
-  console.log("Sneha YS Telegram Bot Running");
-}
+      if (msg.text === "🎭 Characters") {
+        return bot.sendMessage(
+          msg.chat.id,
+          "Character Universe next phase me fully add hoga: Yash, Sneha, Friends, Objects, Worlds.",
+          creatorTelegramKeyboard()
+        );
+      }
 
-app.listen(PORT, () => {
-  console.log("Sneha YS backend running on port " + PORT);
-});
+      if (msg.text === "🎙 Voice") {
+        return bot.sendMessage(
+          msg.chat.id,
+          "Voice Studio: Hindi male/female voice generation website route se connect ho raha hai. Telegram direct voice generate next phase me.",
+          creatorTelegramKeyboard()
+        );
+      }
+
+      if (msg.text === "💻 Programming") {
+        return bot.sendMessage(
+          msg.chat.id,
+          "Programming mode 💻\nPucho: Python zero se sikhao, loop dry run karo, website kaise banti hai?",
+          learnTelegramKeyboard()
+        );
+      }
+
+      if (msg.text === "📚 My Resources") {
+        const { data } = await supabase
+          .from("resources")
+          .select("title,subject,unit,resource_type")
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (!data || data.length === 0) {
+          return bot.sendMessage(
+            msg.chat.id,
+            "Abhi resources empty hain.",
+            learnTelegramKeyboard()
+          );
