@@ -593,3 +593,62 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     if (req.file.mimetype === "application/pdf") {
       content = await extractPdfText(req.file.buffer);
+      resourceType = "pdf";
+
+      if (!content || content.length < 80) {
+        await updateJob(job.id, "failed", 100, "PDF readable text nahi mila", "0");
+        return res.json({
+          success: false,
+          message: "PDF me readable text nahi mila. Ye scanned/photo PDF lag rahi hai."
+        });
+      }
+    } else if (req.file.mimetype.startsWith("image/")) {
+      content = "Image uploaded. OCR/vision next version me add hoga.";
+      resourceType = "image";
+    } else if (req.file.mimetype.startsWith("video/")) {
+      content = "Video uploaded. Creator workflow me process hoga.";
+      resourceType = "video";
+    } else {
+      content = "File uploaded.";
+    }
+
+    await updateJob(job.id, "running", 35, "Saving resource", "1 min");
+
+    const { data: saved, error } = await supabase
+      .from("resources")
+      .insert({
+        title,
+        subject,
+        unit,
+        resource_type: resourceType,
+        content: content.slice(0, 20000),
+        file_url: null
+      })
+      .select();
+
+    if (error) throw new Error(error.message);
+
+    let analysis = null;
+
+    if (resourceType === "pdf") {
+      await updateJob(job.id, "running", 70, "Analyzing PDF", "1 min");
+      analysis = await analyzeResource(saved[0]);
+    }
+
+    await updateJob(job.id, "completed", 100, "Upload complete", "0");
+
+    res.json({
+      success: true,
+      data: saved,
+      preview: content.slice(0, 500),
+      analysis
+    });
+  } catch (err) {
+    if (job) await updateJob(job.id, "failed", 100, err.message, "0");
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log("Sneha YS backend running on port " + PORT);
+});
