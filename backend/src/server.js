@@ -1374,3 +1374,125 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
             "Abhi resources empty hain.",
             learnTelegramKeyboard()
           );
+}
+
+        const list = data
+          .map(
+            (r, i) =>
+              `${i + 1}. ${r.title} — ${r.subject || ""} ${r.unit || ""} (${r.resource_type || ""})`
+          )
+          .join("\n");
+
+        return bot.sendMessage(msg.chat.id, list, learnTelegramKeyboard());
+      }
+
+      if (msg.text === "📋 My Projects") {
+        const { data } = await supabase
+          .from("creator_projects")
+          .select("title,category,platform,style")
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (!data || data.length === 0) {
+          return bot.sendMessage(
+            msg.chat.id,
+            "Abhi creator projects empty hain.",
+            creatorTelegramKeyboard()
+          );
+        }
+
+        const list = data
+          .map(
+            (p, i) =>
+              `${i + 1}. ${p.title} — ${p.category || ""} — ${p.platform || ""} — ${p.style || ""}`
+          )
+          .join("\n");
+
+        return bot.sendMessage(msg.chat.id, list, creatorTelegramKeyboard());
+      }
+
+      if (msg.text === "📊 Dashboard") {
+        const { data } = await supabase
+          .from("jobs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        const text =
+          !data || data.length === 0
+            ? "Abhi koi running job nahi."
+            : data
+                .map(
+                  (j, i) =>
+                    `${i + 1}. ${j.job_type} — ${j.status} — ${j.progress}%\n${j.details || ""}`
+                )
+                .join("\n\n");
+
+        return bot.sendMessage(msg.chat.id, text, mainTelegramKeyboard());
+      }
+
+      if (msg.text === "🩺 Health") {
+        const health =
+          "Sneha YS Health:\n" +
+          "Gemini: " + (process.env.GEMINI_API_KEY ? "✅" : "❌") + "\n" +
+          "Groq: " + (process.env.GROQ_API_KEY ? "✅" : "❌") + "\n" +
+          "OpenRouter: " + (process.env.OPENROUTER_API_KEY ? "✅" : "❌") + "\n" +
+          "ElevenLabs: " + (process.env.ELEVENLABS_API_KEY ? "✅" : "❌") + "\n" +
+          "Stability: " + (process.env.STABILITY_API_KEY ? "✅" : "❌") + "\n" +
+          "Telegram: ✅\n" +
+          "Supabase: " + (supabaseKey ? "✅" : "❌");
+
+        return bot.sendMessage(msg.chat.id, health, mainTelegramKeyboard());
+      }
+
+      if (msg.text.toLowerCase().startsWith("create project:")) {
+        const raw = msg.text.replace(/create project:/i, "").trim();
+        const parts = raw.split("|").map((p) => p.trim());
+
+        const { data, error } = await supabase
+          .from("creator_projects")
+          .insert({
+            title: parts[0] || "Telegram Creator Project",
+            category: parts[1] || "AI Character Story",
+            platform: parts[2] || "YouTube Shorts",
+            style: parts[3] || "Cinematic",
+            voice_type: parts[4] || "Young Hindi Female",
+            story: parts[5] || raw,
+            status: "draft"
+          })
+          .select();
+
+        if (error) throw new Error(error.message);
+
+        return bot.sendMessage(
+          msg.chat.id,
+          "Project created ✅\nID: " + data[0].id + "\nWebsite me blueprint generate kar sakte ho.",
+          creatorTelegramKeyboard()
+        );
+      }
+
+      await saveMessage("telegram-yash", msg.text, null, "telegram");
+      await saveMemoryIfImportant(msg.text);
+
+      const result = await askSneha(msg.text);
+
+      await saveMessage("telegram-sneha", result.reply, result.provider, "telegram");
+
+      for (const part of splitTelegram(result.reply)) {
+        await bot.sendMessage(msg.chat.id, part, mainTelegramKeyboard());
+      }
+    } catch (err) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "Yash ❤️ Telegram error: " + err.message,
+        mainTelegramKeyboard()
+      );
+    }
+  });
+
+  console.log("Sneha YS Telegram Bot Running");
+}
+
+app.listen(PORT, () => {
+  console.log("Sneha YS backend running on port " + PORT);
+});
