@@ -2753,7 +2753,41 @@ Ab tum normal baat kar sakte ho.`,
 
   console.log("Sneha YS Telegram Bot Running");
 }
+app.get("/chat-test", async (req, res) => {
+  try {
+    const result = await askSneha("Hello Sneha");
+    res.json({
+      success: true,
+      provider: result.provider,
+      reply: result.reply
+    });
+  } catch (err) {
+    res.json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 
+app.get("/providers-test", (req, res) => {
+  res.json({
+    success: true,
+    gemini: !!process.env.GEMINI_API_KEY,
+    groq: !!process.env.GROQ_API_KEY,
+    openrouter: !!process.env.OPENROUTER_API_KEY,
+    openai: !!process.env.OPENAI_API_KEY,
+    elevenlabs: !!process.env.ELEVENLABS_API_KEY,
+    stability: !!process.env.STABILITY_API_KEY,
+    fal: !!process.env.FAL_KEY,
+    replicate: !!process.env.REPLICATE_API_TOKEN,
+    runway: !!process.env.RUNWAY_API_KEY,
+    serpapi: !!process.env.SERPAPI_API_KEY
+  });
+});
+
+app.get("/ping", (req, res) => {
+  res.send("pong");
+});
 app.listen(PORT, () => {
   console.log(
     "Sneha YS backend running on port " + PORT
